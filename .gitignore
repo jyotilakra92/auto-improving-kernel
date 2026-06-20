@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.python-version.local
+
+# Experiment artifacts (agent-managed, do not commit)
+run.log
+results.tsv
+
+# IDE
+.idea/
+.vscode/
