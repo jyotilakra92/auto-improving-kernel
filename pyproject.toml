@@ -1,19 +1,27 @@
 [project]
 name = "autokernel"
 version = "0.1.0"
-description = "Autonomous GPU kernel optimization (autoresearch for Triton kernels)"
+description = "Autonomous GPU kernel optimization (autoresearch for CUDA kernels)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.12"
 dependencies = [
-    "torch==2.9.1",
+    "torch==2.9.1; sys_platform != 'linux'",
+    "torch==2.9.1+cu128; sys_platform == 'linux'",
+    "ninja>=1.11.0",
+    "setuptools>=70.0.0",
+    "matplotlib>=3.8.0",
+    "pandas>=2.0.0",
 ]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu128" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

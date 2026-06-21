@@ -1,28 +1,28 @@
 """
-Run the fixed autokernel benchmark against kernel.py.
+Run the fixed autokernel benchmark against kernel.cu.
 
     uv run bench.py
 
-Prints grep-friendly summary lines for the agent loop.
+Prints summary lines for the agent loop.
 """
 
 from __future__ import annotations
 
 import torch
 
-from kernel import rmsnorm
+from kernel import matmul
 from prepare import benchmark_kernel, make_inputs, print_summary, require_cuda
 
 
 def main() -> None:
     device = require_cuda()
     torch.cuda.manual_seed(42)
-    x, weight, ref = make_inputs(device)
+    a, b, ref = make_inputs(device)
 
     print(f"Device: {torch.cuda.get_device_name()}")
     print(f"Capability: {torch.cuda.get_device_capability()}")
 
-    result = benchmark_kernel(rmsnorm, x, weight, ref)
+    result = benchmark_kernel(matmul, a, b, ref)
     print_summary(result, label="kernel")
 
 

@@ -1,84 +1,84 @@
 # autokernel
 
-**Autoresearch for GPU kernels** — give an AI agent a real Triton kernel, a fixed benchmark, and a keep/revert loop. Wake up to faster code.
+**Autoresearch for GPU kernels** — give an AI agent a real CUDA C++ kernel, a fixed benchmark, and a keep/revert loop.
 
-Directly inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) (autonomous LLM training experiments) and the [AutoKernel](https://github.com/RightNow-AI/autokernel) research line (autonomous kernel optimization on full models).
-
-This repo is a **minimal demo**: one kernel, one metric, one file to edit. It is the kernel equivalent of autoresearch's `train.py` loop.
+Directly inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
 ## How it works
 
 ```
 prepare.py   — fixed problem, reference, correctness, timing (do not modify)
-kernel.py    — Triton RMSNorm implementation (agent modifies this)
+kernel.cu    — CUDA C++ MatMul kernel (agent modifies this)
+kernel.py    — JIT compile/load wrapper (do not modify)
 bench.py     — runs benchmark, prints grep-friendly metrics (do not modify)
+plot.py      — reads results.tsv, writes progress.png
 program.md   — agent instructions ("research org code")
 ```
 
-The agent:
+## Problem: MatMul
 
-1. Edits `kernel.py`
-2. Runs `uv run bench.py`
-3. Keeps the commit if `median_us` drops and output is correct
-4. Reverts otherwise
-5. Logs to `results.tsv` and repeats
+Fixed shape, bfloat16 (tuned for **single L4 / ~50GB GPU**):
+
+```
+C = A @ B
+A: [1024, 1024]   B: [1024, 1024]   C: [1024, 1024]
+```
+
+Baseline kernel: one CUDA block per output, one thread, naive loop over K.
 
 ## Quick start
 
-**Requirements:** Single NVIDIA GPU, Python 3.10+, [uv](https://docs.astral.sh/uv/).
+**Requirements:** NVIDIA GPU + driver (`nvidia-smi` works), Linux, Python 3.10+, [uv](https://docs.astral.sh/uv/).
 
-```bash
-cd autokernel
+**Important (Debian 13 + PyTorch cu128):**
 
-# Install dependencies
-uv sync
+1. **Driver 535 is too old** (max CUDA 12.2). Upgrade first:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y cuda-drivers-560
+   sudo reboot
+   nvidia-smi   # expect Driver 560+ and CUDA Version 12.6+
+   ```
 
-# Baseline benchmark (~30s)
-uv run bench.py
+2. **Do not use** `apt install cuda-nvcc-13-*` (CUDA 13 runtime mismatch).
+
+3. Install **CUDA 12.8 toolkit** (nvcc only):
+   ```bash
+   cd autokernel
+   chmod +x install_cuda128.sh
+   ./install_cuda128.sh
+
+   export CUDA_HOME=/usr/local/cuda-12.8
+   export PATH=$CUDA_HOME/bin:$PATH
+   rm -rf ~/.cache/torch_extensions/*/autokernel_matmul
+
+   uv run check_cuda.py
+   uv run bench.py
+   ```
+
+Key output lines:
+
 ```
-
-Expected output includes:
-
-```
-median_us:        ...
-gbytes_s:         ...
+median_us:        ...    # lower is better
+tflops_s:         ...    # higher is better
 correct:          True
 ```
 
-## Run the agent
+## Progress chart
 
-Point Cursor (or another agent) at this repo with permissions to run commands and commit:
+After experiments append rows to `results.tsv`:
+
+```bash
+uv run plot.py    # → progress.png
+```
+
+Shows `median_us` and `tflops_s` over time, with kept/discarded/crashed runs and a running-best line.
+
+## Run the agent
 
 ```
 Read program.md and kick off a new autokernel experiment. Do setup first.
 ```
-
-The default `program.md` is intentionally minimal — iterate on it like Karpathy suggests for `program.md` in autoresearch.
-
-## Problem: RMSNorm
-
-Shape `[8192, 4096]`, bfloat16 — typical LLM hidden-state normalization. The baseline kernel uses one Triton program per row with a naive reduction. There is plenty of headroom for tiling, vectorization, and occupancy tuning.
-
-## Project layout
-
-```
-autokernel/
-├── prepare.py    # fixed eval harness
-├── kernel.py     # agent-editable Triton kernel
-├── bench.py      # benchmark runner
-├── program.md    # autonomous agent loop
-├── pyproject.toml
-└── README.md
-```
-
-Sibling directory `../autoresearch/` is the original Karpathy LLM training autoresearch clone.
-
-## Design choices
-
-- **Single editable file** — small diffs, easy review, matches autoresearch philosophy.
-- **Correctness-gated** — faster wrong answers are rejected outright.
-- **Fixed problem size** — experiments are comparable across commits and machines (same as autoresearch's fixed 5-minute training budget).
-- **Triton first** — fast compile/edit cycle for agents; CUDA C++ can be a follow-up fork.
 
 ## License
 
