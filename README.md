@@ -6,6 +6,26 @@ For the **general self-improving pattern** (how to adapt this to other domains),
 
 Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
+## Results (autonomous agent on NVIDIA L4)
+
+A Cursor agent edited **`kernel.cu` only** on branch `autokernel/jun21` — fixed harness, git keep/revert loop, **34 experiments** (9 kept, 3 crashes). The chart below is generated from [`results.tsv`](results.tsv) via `uv run plot.py`.
+
+![MatMul kernel autotuning progress — TFLOPS and median_us over experiments](progress.png)
+
+| | Baseline (naive) | Best (kept) | Change |
+|---|------------------|-------------|--------|
+| **`median_us`** | 1,669 µs | **226 µs** | **7.4× faster** |
+| **`tflops_s`** | 1.29 | **9.51** | **7.4× higher** |
+| **Experiments** | — | 9 kept / 34 total | 3 crashes |
+
+Key kept milestones: shared-memory **32×32** tile (→ 928 µs), **64×64** register blocking (→ 265 µs), **BK=64** bf16 tiles + **fmaf** (→ 250 µs), then **cp.async** aligned loads (→ **226 µs**, **9.51 TFLOPS**). Discarded runs were correct but slower; crashes were reverted via `git reset --hard`.
+
+Regenerate the chart after your own run:
+
+```bash
+uv run plot.py    # reads results.tsv → progress.png
+```
+
 ## How it works
 
 ```text
@@ -108,11 +128,16 @@ Only edit kernel.cu. Do not ask me questions — keep iterating until I stop you
 
 ## Progress chart
 
+Generated from `results.tsv` (continuous running-best curves + per-experiment scatter):
+
 ```bash
 uv run plot.py    # → progress.png
 ```
 
-Shows `median_us` and `tflops_s` over experiments; green = kept, gray = discarded, red = crash.
+- **Top:** `tflops_s` — smooth running-best curve + scatter per experiment.
+- **Bottom:** `median_us` (µs) — smooth running-best curve + baseline dashed line.
+
+Invalid runs (`999999` µs / crashes) are excluded from latency scatter so the scale stays readable.
 
 ## Apply this pattern elsewhere
 
