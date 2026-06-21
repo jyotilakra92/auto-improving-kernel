@@ -1,84 +1,130 @@
 # autokernel
 
-**Autoresearch for GPU kernels** — give an AI agent a real CUDA C++ kernel, a fixed benchmark, and a keep/revert loop.
+**Autoresearch for GPU kernels** — one editable CUDA file, fixed MatMul benchmark, git keep/revert loop.
 
-Directly inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
+For the **general self-improving pattern** (how to adapt this to other domains), see the [parent README](../README.md).
+
+Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
 ## How it works
 
-```
+```text
 prepare.py   — fixed problem, reference, correctness, timing (do not modify)
 kernel.cu    — CUDA C++ MatMul kernel (agent modifies this)
 kernel.py    — JIT compile/load wrapper (do not modify)
 bench.py     — runs benchmark, prints grep-friendly metrics (do not modify)
 plot.py      — reads results.tsv, writes progress.png
 program.md   — agent instructions ("research org code")
+results.tsv  — local experiment log (do not commit)
 ```
 
 ## Problem: MatMul
 
-Fixed shape, bfloat16 (tuned for **single L4 / ~50GB GPU**):
 
-```
+```text
 C = A @ B
 A: [1024, 1024]   B: [1024, 1024]   C: [1024, 1024]
 ```
 
-Baseline kernel: one CUDA block per output, one thread, naive loop over K.
+Baseline kernel: naive loop over K with one thread per output element.
+
+**Goal:** minimize `median_us` (lower is better). Correctness is mandatory (`correct: True`).
 
 ## Quick start
 
-**Requirements:** NVIDIA GPU + driver (`nvidia-smi` works), Linux, Python 3.10+, [uv](https://docs.astral.sh/uv/).
+**Requirements:** NVIDIA GPU + driver (`nvidia-smi` works), Linux, Python 3.11, [uv](https://docs.astral.sh/uv/).
 
-**Important (Debian 13 + PyTorch cu128):**
+### 1. CUDA toolkit (cloud GPU / Debian 13)
 
-1. **Driver 535 is too old** (max CUDA 12.2). Upgrade first:
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y cuda-drivers-560
-   sudo reboot
-   nvidia-smi   # expect Driver 560+ and CUDA Version 12.6+
-   ```
+Driver **535 is too old** for PyTorch cu128. Use driver **560+**, then install nvcc:
 
-2. **Do not use** `apt install cuda-nvcc-13-*` (CUDA 13 runtime mismatch).
-
-3. Install **CUDA 12.8 toolkit** (nvcc only):
-   ```bash
-   cd autokernel
-   chmod +x install_cuda128.sh
-   ./install_cuda128.sh
-
-   export CUDA_HOME=/usr/local/cuda-12.8
-   export PATH=$CUDA_HOME/bin:$PATH
-   rm -rf ~/.cache/torch_extensions/*/autokernel_matmul
-
-   uv run check_cuda.py
-   uv run bench.py
-   ```
-
-Key output lines:
-
+```bash
+chmod +x install_cuda128.sh
+./install_cuda128.sh
 ```
-median_us:        ...    # lower is better
-tflops_s:         ...    # higher is better
+
+Or manually:
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.8
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64/stubs:$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}
+```
+
+Add those lines to `~/.bashrc`. The **`stubs`** path is required for the link step (`-lcuda`).
+
+Do **not** use `apt install cuda-nvcc-13-*` — runtime mismatch with PyTorch cu128 wheels.
+
+### 2. Run benchmark
+
+```bash
+uv sync
+rm -rf ~/.cache/torch_extensions/*/autokernel_matmul   # after env changes
+uv run check_cuda.py
+uv run bench.py
+```
+
+Expected output:
+
+```text
+Device: NVIDIA L4
+Capability: (8, 9)
+---
+label:            kernel
 correct:          True
+median_us:        1467.141
+p95_us:           1813.947
+gbytes_s:         4.29
+tflops_s:         1.46
+max_abs_err:      0.500000
+max_rel_err:      0.009756
+bench_seconds:    0.08
+total_seconds:    51.22
+problem:          MatMul [1024,1024] x [1024,1024] torch.bfloat16
+iters:            50 timed (cap 60s)
+```
+
+First run JIT-compiles `kernel.cu` (~30–60s). Later runs are faster unless `kernel.cu` changes.
+
+## Git + experiment branch
+
+```bash
+git checkout -b autokernel/<tag>    # e.g. autokernel/jun21
+printf 'commit\tmedian_us\ttflops_s\tstatus\tdescription\n' > results.tsv
+git add kernel.cu
+git commit -m "baseline: naive matmul"
+```
+
+Experiment commits on this branch should contain **`kernel.cu` only**. Harness changes go on `main`.
+
+## Run the agent
+
+Connect [Cursor Remote SSH](../README.md#running-with-cursor-or-any-agent) to your GPU machine, enable **auto-run**, then:
+
+```text
+Setup is COMPLETE. Read program.md and run the experiment loop on branch autokernel/<tag>.
+Only edit kernel.cu. Do not ask me questions — keep iterating until I stop you.
 ```
 
 ## Progress chart
-
-After experiments append rows to `results.tsv`:
 
 ```bash
 uv run plot.py    # → progress.png
 ```
 
-Shows `median_us` and `tflops_s` over time, with kept/discarded/crashed runs and a running-best line.
+Shows `median_us` and `tflops_s` over experiments; green = kept, gray = discarded, red = crash.
 
-## Run the agent
+## Apply this pattern elsewhere
 
-```
-Read program.md and kick off a new autokernel experiment. Do setup first.
-```
+The loop is the same; only the **candidate file** and **metric** change. Swap `kernel.cu` / `median_us` for your domain:
+
+| You want to improve… | Agent edits | `prepare.py` checks | Keep if… |
+|---------------------|-------------|---------------------|----------|
+| LLM training code | `train.py` | loss on fixed val set | `val_bpb` ↓ ([autoresearch](../autoresearch/)) |
+| A hot JSON parser | `parse.py` | output == reference on 10k fixtures | `median_us` ↓ per batch |
+| A ranking function | `score.py` | NDCG on fixed queries | `ndcg` ↑ |
+
+**Mini recipe:** copy this repo’s layout → rename the editable file → implement reference + timing in `prepare.py` → write `program.md` with the keep/revert loop → run the agent on branch `auto-<name>/<tag>`. Full blueprint: [parent README](../README.md).
 
 ## License
 

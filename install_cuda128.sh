@@ -81,7 +81,8 @@ if ! grep -q 'cuda-12.8/bin' ~/.bashrc 2>/dev/null; then
 # CUDA 12.8 toolkit (autokernel / PyTorch cu128)
 export CUDA_HOME=${INSTALL_DIR}
 export PATH=\${CUDA_HOME}/bin:\${PATH}
-export LD_LIBRARY_PATH=\${CUDA_HOME}/lib64:\${LD_LIBRARY_PATH:-}
+# stubs/ provides libcuda.so for nvcc/Triton link step (driver lib is runtime-only)
+export LD_LIBRARY_PATH=\${CUDA_HOME}/lib64/stubs:\${CUDA_HOME}/lib64:\${LD_LIBRARY_PATH:-}
 EOF
 fi
 
